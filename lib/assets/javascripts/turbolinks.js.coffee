@@ -1,7 +1,3 @@
-pageCache               = {}
-cacheSize               = 10
-transitionCacheEnabled  = false
-
 currentState            = null
 loadedAssets            = null
 
@@ -10,27 +6,29 @@ referer                 = null
 createDocument          = null
 xhr                     = null
 
+pausedPage              = null
+pauseShowingPages       = false
+
+waitBeforeShowingPage = (callback) ->
+  pausedPage = callback
+  resumeShowingPage() unless pauseShowingPages
+
+pauseShowingPage = ->
+  pauseShowingPages = true
+
+resumeShowingPage = ->
+  pauseShowingPages = false
+  pausedPage() if pausedPage
+  pausedPage = null
 
 fetch = (url) ->
   url = new ComponentUrl url
 
   rememberReferer()
-  cacheCurrentPage()
 
-  if transitionCacheEnabled and cachedPage = transitionCacheFor(url.absolute)
-    fetchHistory cachedPage
-    fetchReplacement url
-  else
-    fetchReplacement url, resetScrollPosition
+  fetchReplacement url, resetScrollPosition
 
-transitionCacheFor = (url) ->
-  cachedPage = pageCache[url]
-  cachedPage if cachedPage and !cachedPage.transitionCacheDisabled
-
-enableTransitionCache = (enable = true) ->
-  transitionCacheEnabled = enable
-
-fetchReplacement = (url, onLoadFunction = =>) ->  
+fetchReplacement = (url, onLoadFunction = =>) ->
   triggerEvent 'page:fetch', url: url.absolute
 
   xhr?.abort()
@@ -43,54 +41,25 @@ fetchReplacement = (url, onLoadFunction = =>) ->
     triggerEvent 'page:receive', url: url.absolute
 
     if doc = processResponse()
-      reflectNewUrl url
-      changePage extractTitleAndBody(doc)...
-      manuallyTriggerHashChangeForFirefox()
-      reflectRedirectedUrl()
-      onLoadFunction()
-      triggerEvent 'page:load'
+      waitBeforeShowingPage =>
+        reflectNewUrl url
+        changePage extractTitleAndBody(doc)...
+        manuallyTriggerHashChangeForFirefox()
+        reflectRedirectedUrl()
+        onLoadFunction()
+        triggerEvent 'page:load'
+        xhr = null
     else
       document.location.href = url.absolute
+      xhr = null
 
-  xhr.onloadend = -> xhr = null
-  xhr.onerror   = -> document.location.href = url.absolute
+  xhr.onabort = -> xhr = null
+
+  xhr.onerror = ->
+    document.location.href = url.absolute
+    xhr = null
 
   xhr.send()
-
-fetchHistory = (cachedPage) ->
-  xhr?.abort()
-  changePage cachedPage.title, cachedPage.body
-  recallScrollPosition cachedPage
-  triggerEvent 'page:restore'
-
-
-cacheCurrentPage = ->
-  currentStateUrl = new ComponentUrl currentState.url
-
-  pageCache[currentStateUrl.absolute] =
-    url:                      currentStateUrl.relative,
-    body:                     document.body,
-    title:                    document.title,
-    positionY:                window.pageYOffset,
-    positionX:                window.pageXOffset,
-    cachedAt:                 new Date().getTime(),
-    transitionCacheDisabled:  document.querySelector('[data-no-transition-cache]')?
-
-  constrainPageCacheTo cacheSize
-
-pagesCached = (size = cacheSize) ->
-  cacheSize = parseInt(size) if /^[\d]+$/.test size
-
-constrainPageCacheTo = (limit) ->
-  pageCacheKeys = Object.keys pageCache
-
-  cacheTimesRecentFirst = pageCacheKeys.map (url) ->
-    pageCache[url].cachedAt
-  .sort (a, b) -> b - a
-
-  for key in pageCacheKeys when pageCache[key].cachedAt <= cacheTimesRecentFirst[limit]
-    triggerEvent 'page:expire', pageCache[key]
-    delete pageCache[key]
 
 changePage = (title, body, csrfToken, runScripts) ->
   triggerEvent 'page:before-unload'
@@ -385,11 +354,7 @@ installJqueryAjaxSuccessPageUpdateTrigger = ->
 
 installHistoryChangeHandler = (event) ->
   if event.state?.turbolinks
-    if cachedPage = pageCache[(new ComponentUrl(event.state.url)).absolute]
-      cacheCurrentPage()
-      fetchHistory cachedPage
-    else
-      visit event.target.location.href
+    visit event.target.location.href
 
 initializeTurbolinks = ->
   rememberCurrentUrl()
@@ -435,9 +400,6 @@ else
 
 # Public API
 #   Turbolinks.visit(url)
-#   Turbolinks.pagesCached()
-#   Turbolinks.pagesCached(20)
-#   Turbolinks.enableTransitionCache()
 #   Turbolinks.allowLinkExtensions('md')
 #   Turbolinks.supported
-@Turbolinks = { visit, pagesCached, enableTransitionCache, allowLinkExtensions: Link.allowExtensions, supported: browserSupportsTurbolinks }
+@Turbolinks = { visit, allowLinkExtensions: Link.allowExtensions, supported: browserSupportsTurbolinks, pauseShowingPage, resumeShowingPage }
