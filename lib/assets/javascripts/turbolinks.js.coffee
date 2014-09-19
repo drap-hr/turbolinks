@@ -10,6 +10,7 @@ pausedPage              = null
 pauseShowingPages       = false
 
 waitBeforeShowingPage = (callback) ->
+  triggerEvent 'page:before-switch'
   pausedPage = callback
   resumeShowingPage() unless pauseShowingPages
 
