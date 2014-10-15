@@ -9,8 +9,8 @@ xhr                     = null
 pausedPage              = null
 pauseShowingPages       = false
 
-waitBeforeShowingPage = (callback) ->
-  triggerEvent 'page:before-switch'
+waitBeforeShowingPage = (doc, callback) ->
+  triggerEvent 'page:before-switch', document: doc
   pausedPage = callback
   resumeShowingPage() unless pauseShowingPages
 
@@ -42,7 +42,7 @@ fetchReplacement = (url, onLoadFunction = =>) ->
     triggerEvent 'page:receive', url: url.absolute
 
     if doc = processResponse()
-      waitBeforeShowingPage =>
+      waitBeforeShowingPage doc, =>
         reflectNewUrl url
         changePage extractTitleAndBody(doc)...
         manuallyTriggerHashChangeForFirefox()
